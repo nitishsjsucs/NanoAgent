@@ -1,0 +1,10 @@
+.{
+    .name = .krillclaw,
+    .version = "0.1.0",
+    .fingerprint = 0x314915b1e04e1aa9,
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

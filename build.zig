@@ -1,0 +1,76 @@
+const std = @import("std");
+
+pub const Profile = enum { coding, iot, robotics };
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    // Feature flags
+    const enable_ble = b.option(bool, "ble", "Enable BLE transport support") orelse false;
+    const enable_serial = b.option(bool, "serial", "Enable serial/UART transport") orelse false;
+    const embedded = b.option(bool, "embedded", "Build for embedded (freestanding, no OS)") orelse false;
+    const profile = b.option(Profile, "profile", "Tool profile: coding (default), iot, robotics") orelse .coding;
+    const sandbox = b.option(bool, "sandbox", "Enable sandbox mode: restricted execution, no network, simulated backends") orelse false;
+
+    const options = b.addOptions();
+    options.addOption(bool, "enable_ble", enable_ble);
+    options.addOption(bool, "enable_serial", enable_serial);
+    options.addOption(bool, "embedded", embedded);
+    options.addOption(Profile, "profile", profile);
+    options.addOption(bool, "sandbox", sandbox);
+
+    const mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    mod.addOptions("build_options", options);
+
+    const exe = b.addExecutable(.{
+        .name = "nanoagent",
+        .root_module = mod,
+    });
+
+    // Size optimization: strip debug info, frame pointers, unwind tables, thread safety, LTO
+    exe.root_module.strip = true;
+    exe.root_module.omit_frame_pointer = true;
+    exe.root_module.unwind_tables = .none;
+    exe.root_module.single_threaded = true;
+    if (optimize == .ReleaseSmall or optimize == .ReleaseFast) {
+        exe.want_lto = true;
+    }
+
+    b.installArtifact(exe);
+
+    // Run step
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+    const run_step = b.step("run", "Run KrillClaw");
+    run_step.dependOn(&run_cmd.step);
+
+    // Test step
+    const test_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    test_mod.addOptions("build_options", options);
+
+    const tests = b.addTest(.{
+        .root_module = test_mod,
+    });
+
+    const test_step = b.step("test", "Run tests");
+    test_step.dependOn(&b.addRunArtifact(tests).step);
+
+    // Size report step
+    const size_step = b.step("size", "Report binary size");
+    const size_cmd = b.addSystemCommand(&.{ "ls", "-la" });
+    size_cmd.addArtifactArg(exe);
+    size_cmd.step.dependOn(b.getInstallStep());
+    size_step.dependOn(&size_cmd.step);
+}

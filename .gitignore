@@ -1,0 +1,33 @@
+zig-out/
+zig-cache/
+.zig-cache/
+__pycache__/
+*.pyc
+.env
+.env.*
+bridge/venv/
+
+.reviews/
+ralph/
+
+# Test artifacts
+test_no_http
+
+# Claude Code project config
+.claude/
+CLAUDE.md
+
+# Internal docs (strategy, competitive intel, handoffs)
+HANDOFF.md
+Docs/PHASE*-PLAN.md
+Docs/COMPETITIVE-TABLE.md
+
+# Secrets and credentials
+*.key
+*.pem
+*.p12
+*secret*
+*credential*
+.krillclaw.json
+investor-qa-preseed.txt
+Docs/ARCHITECTURE.md

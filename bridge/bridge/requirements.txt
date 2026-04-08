@@ -1,0 +1,18 @@
+anthropic>=0.40.0
+bleak>=0.21.0
+pyserial>=3.5
+# Telegram transport: no additional dependencies (uses stdlib urllib.request)
+
+# Optional: MCP client support
+# mcp>=1.26.0
+
+# Optional: Channels
+# discord.py>=2.3.0     # Discord channel
+# slack-bolt>=1.18.0    # Slack channel (Socket Mode)
+# paho-mqtt>=2.0.0      # MQTT channel
+# websockets>=12.0      # WebSocket channel
+
+# Optional: Hardware/GPIO (Linux SBCs only)
+# gpiod>=2.0.0          # GPIO via libgpiod
+# smbus2>=0.4.0         # I2C
+# spidev>=3.6           # SPI
