@@ -5,76 +5,106 @@
 </h1>
 
 <p align="center">
-  <strong>The world's smallest autonomous AI agent runtime.</strong><br>
-  <em>~450 KB binary. Zero dependencies. From microcontrollers to cloud servers.</em>
+  <strong>An exploratory autonomous AI agent runtime written in Zig.</strong><br>
+  <em>No external packages. Cross-compiles to small static binaries, from servers down to bare-metal MCU stubs.</em>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL_1.1-blue?style=flat-square" alt="License: BSL 1.1"></a>
   <img src="https://img.shields.io/badge/language-Zig_0.15+-f7a41d?style=flat-square&logo=zig&logoColor=white" alt="Zig 0.15+">
-  <img src="https://img.shields.io/badge/binary-~450KB-00ff88?style=flat-square" alt="Binary size">
   <img src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square" alt="Zero deps">
-  <img src="https://img.shields.io/badge/tests-60+-blue?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/inline_tests-126-blue?style=flat-square" alt="126 inline tests">
 </p>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#why-nanoagent">Why NanoAgent?</a> &middot;
+  <a href="#what-this-is">What This Is</a> &middot;
   <a href="#architecture">Architecture</a> &middot;
   <a href="#profiles">Profiles</a> &middot;
-  <a href="#embedded-mode">Embedded</a> &middot;
+  <a href="#embedded-status">Embedded Status</a> &middot;
   <a href="#configuration-reference">Config</a> &middot;
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 ---
 
-NanoAgent is an autonomous AI agent runtime written from scratch in **Zig** — no standard library JSON, no external packages, no runtime dependencies. It implements a full **ReAct (Reason + Act) agent loop** that connects to 20+ LLM providers, executes tools, manages context windows, streams responses, and loops until the task is done.
-
-The entire runtime — LLM client, tool executor, JSON parser, SSE streaming, cron scheduler, KV store, context manager, and three transport layers — compiles to a **single static binary under 450 KB** with link-time optimization. It boots in under 10 ms, runs on 2 MB of RAM, and targets everything from a **$3 ESP32** to a cloud VM.
+NanoAgent is an agent runtime written from scratch in **Zig** — no external packages, no
+`std.json`, no runtime dependencies. It implements a **ReAct (Reason + Act) loop** that calls
+an LLM, parses the response, executes tools, and repeats until the task finishes or an
+iteration cap is hit. Around that core sit a hand-rolled JSON parser, an SSE streaming
+parser, a compile-time tool-profile system, a fixed arena allocator, a cron scheduler, and
+three transport backends.
 
 ```
- ┌─────────────────────────────────────────────────────────────┐
- │                                                             │
- │   ~450 KB binary.  Zero dependencies.  Boots in <10 ms.    │
- │                                                             │
- │   19 source files  ·  4,576 lines of Zig  ·  60+ tests     │
- │   3 compile-time profiles  ·  3 transport layers            │
- │   7 messaging channels  ·  20+ LLM providers                │
- │                                                             │
- └─────────────────────────────────────────────────────────────┘
+ 27 Zig source files  ·  6,917 lines  ·  126 inline tests  ·  0 dependencies
+ 3 compile-time profiles  ·  3 transports  ·  7 bridge channels
 ```
 
-## Table of Contents
+## Project status
 
-- [Quick Start](#quick-start)
-- [Why NanoAgent?](#why-nanoagent)
-- [Architecture](#architecture)
-- [Profiles](#profiles)
-- [Providers](#providers)
-- [Embedded Mode](#embedded-mode)
-- [Transport Layers](#transport-layers)
-- [Cron / Daemon Mode](#cron--heartbeat-daemon-mode)
-- [Messaging Channels](#messaging-channels)
-- [MCP Support](#mcp-support)
-- [GPIO / Hardware Control](#gpio--hardware-control)
-- [Plugins](#skills--plugins)
-- [Configuration Reference](#configuration-reference)
-- [Design Decisions](#design-decisions)
-- [Testing](#testing)
-- [Building](#building)
-- [Security](#security)
-- [Known Limitations](#known-limitations)
-- [License](#license)
-- [Contributing](#contributing)
+This is a **single-commit exploratory project**, and the honest framing matters more than
+the numbers:
+
+- **There is no CI.** `.github/` contains issue and pull-request templates only — there is
+  no `workflows/` directory, and this repository has never run a GitHub Actions job. Earlier
+  versions of this README claimed "CI runs on every push with a binary size gate (< 600 KB)";
+  that was never true and has been removed.
+- **Boot time and idle RAM have never been measured.** Claims of "boots in under 10 ms" and
+  "runs on 2 MB of RAM" had no benchmark behind them anywhere in this tree and are gone.
+  There is no benchmark harness here.
+- **No build has been run on physical hardware.** See [Embedded status](#embedded-status)
+  — the MCU targets compile, but they are stubs without a hardware abstraction layer.
+- **Binary sizes are cross-compile measurements only**, recorded in
+  [`Docs/CROSS-CHECK-RESULTS.md`](Docs/CROSS-CHECK-RESULTS.md) (2026-02-28, Zig 0.15.2,
+  macOS arm64 host, executed under Docker/QEMU user-mode).
+
+## What This Is
+
+The core of an agent — *call LLM, parse response, execute tools, repeat* — is not much code.
+Most runtimes bury it under a language runtime and a dependency tree. This project is an
+attempt to write that loop directly, in a language with no runtime, and see how far down it
+goes.
+
+What that buys you, concretely: a single static binary, cross-compiled by Zig to 10 Linux
+architectures with no external toolchain, with compile-time dead-code elimination of whole
+tool categories.
+
+What it does not buy you: a production agent. See [Known Limitations](#known-limitations).
+
+### Verified build results
+
+From [`Docs/CROSS-CHECK-RESULTS.md`](Docs/CROSS-CHECK-RESULTS.md) — 44 configurations:
+
+| Category | Configs | Level of proof |
+|---|:--:|---|
+| Linux, executed under Docker + QEMU multiarch | 18 | compile + link + run `--version` and `--help` |
+| Linux, compile-only (no Docker base image) | 12 | compile + link |
+| macOS arm64, native | 1 | full test suite |
+| Freestanding generic (ARM, AArch64, RISC-V) | 5 | compile + link + ELF validation |
+| Freestanding MCU-specific (8 Cortex-M variants) | 8 | compile + link, **needs HAL to run** |
+
+Binary sizes for the executed Linux targets, `ReleaseSmall`:
+
+| Target | coding | iot | robotics |
+|---|--:|--:|--:|
+| aarch64-linux | 452 KB | 432 KB | 450 KB |
+| x86_64-linux | 526 KB | 502 KB | 520 KB |
+| arm-linux (ARMv7) | 547 KB | 525 KB | 545 KB |
+| riscv64-linux | 588 KB | 570 KB | 588 KB |
+| powerpc64le-linux | 543 KB | 519 KB | 539 KB |
+| s390x-linux | 677 KB | 648 KB | 659 KB |
+
+macOS arm64 native: 508 KB. Compile-only targets range higher — up to 887 KB on
+mipsel-linux. The often-quoted "~450 KB" is the *smallest* executed configuration, not a
+general figure; plan on roughly **430–890 KB depending on target and profile**.
 
 ## Quick Start
 
 ```bash
 # 1. Install Zig 0.15+ (https://ziglang.org/download/)
 
-# 2. Clone and build — takes about 1 second
-git clone https://github.com/nanoagent/NanoAgent.git
+# 2. Clone and build
+git clone https://github.com/nitishsjsucs/NanoAgent.git
 cd NanoAgent
 zig build -Doptimize=ReleaseSmall
 
@@ -84,53 +114,12 @@ export ANTHROPIC_API_KEY=sk-ant-...
 # 4. One-shot mode — run a single task and exit
 ./zig-out/bin/nanoagent "create a REST API in Go with user auth"
 
-# 5. Interactive REPL — conversational coding session
+# 5. Interactive REPL
 ./zig-out/bin/nanoagent
 ```
 
-No npm. No pip. No Docker. No virtualenv. One binary, zero setup.
-
-## Why NanoAgent?
-
-Every AI agent runtime today is massive. Desktop coding agents ship as **50–500 MB** bundles with hundreds of transitive dependencies. The core logic — *call LLM, parse response, execute tools, repeat* — is fundamentally simple. It shouldn't require Node.js, Python, or a container runtime.
-
-NanoAgent proves it doesn't. The same agentic loop that powers desktop tools, compiled to a binary **smaller than a JPEG**, running on hardware that **costs less than a coffee**.
-
-> **NanoAgent exists because AI agents should run everywhere** — not just on machines with 8 GB of RAM and a package manager.
-
-### How It Compares
-
-| Metric | NanoAgent | Typical Edge Runtime | Desktop Agent |
-|---|:---:|:---:|:---:|
-| **Binary size** | **~450 KB** | 2–8 MB | 50–500 MB |
-| **RAM at idle** | **~2 MB** | 10–512 MB | 150 MB – 1 GB |
-| **Source lines** | **4,576** | 5–30K | 30–100K+ |
-| **Dependencies** | **0** | 10–100+ | 100–1000+ |
-| **Cold-start time** | **< 10 ms** | < 1 s | 2–5 s |
-| **Embedded / BLE** | **Yes** | Sometimes | No |
-| **Cron / Daemon** | **Yes** | Sometimes | No |
-| **LLM providers** | **20+** | 1–3 | 1–5 |
-
-### Feature Matrix
-
-| Capability | NanoAgent | Details |
-|-----------|:---------:|---------|
-| ReAct agent loop | **Yes** | Think → Act → Observe with hard iteration cap |
-| SSE streaming | **Yes** | Real-time token display, zero-allocation event type parsing |
-| Multi-provider LLM | **20+** | Claude, OpenAI, Ollama + any OpenAI-compatible API via `--base-url` |
-| Compile-time profiles | **3** | `coding`, `iot`, `robotics` — dead code eliminated at compile time |
-| Transport layers | **3** | HTTP, BLE GATT, Serial/UART |
-| Messaging channels | **7** | Telegram, Discord, Slack, WhatsApp, MQTT, WebSocket, Webhook |
-| Context management | **Yes** | Priority-based truncation with O(n) cached token tracking |
-| Loop detection | **Yes** | FNV-1a hashing in constant memory (128 bytes) |
-| Persistent KV store | **Yes** | File-backed key-value store available to all profiles |
-| MCP support | **Yes** | Model Context Protocol client bridge — 1000+ external tools |
-| GPIO / Hardware | **Yes** | GPIO, I2C, SPI via bridge with pin allowlist and rate limiting |
-| Sandbox mode | **Yes** | Restricted filesystem + empty PATH for safe execution |
-| Plugin system | **Yes** | Drop-in Python tools in `~/.nanoagent/plugins/` |
-| Fixed arena allocator | **Yes** | Last-alloc resize optimization for embedded targets |
-| LTO | **Yes** | Link-time optimization for ReleaseSmall / ReleaseFast builds |
-| Inline tests | **60+** | JSON, SSE, arena, context, tools, glob, security injection |
+No npm, no pip, no container runtime. Zig's own toolchain cross-compiles without any
+external cross-toolchain.
 
 ## Architecture
 
@@ -151,475 +140,338 @@ NanoAgent proves it doesn't. The same agentic loop that powers desktop tools, co
 │                        │           │  tools_shared.zig     │     │
 │                 ┌──────▼───────┐   └──────────────────────┘     │
 │                 │  transport   │  ◀── vtable dispatch            │
-│                 └──┬────┬──┬──┘                                  │
-│                    │    │  │                                      │
-│                ┌───▼┐ ┌▼──┴──┐                                   │
-│                │HTTP│ │BLE   │ │Serial│                           │
-│                └────┘ └──────┘ └──────┘                           │
+│                 └──┬────┬───┬──┘                                 │
+│                    │    │   │                                     │
+│                ┌───▼┐ ┌─▼──┐ ┌▼─────┐                            │
+│                │HTTP│ │BLE │ │Serial│                            │
+│                └────┘ └────┘ └──────┘                            │
 │                                                                  │
-│  Core:    json.zig · stream.zig · context.zig · react.zig       │
-│  Infra:   config.zig · types.zig · arena.zig · cron.zig         │
-│  Edge:    ble.zig · serial.zig · transport.zig · fault_log.zig  │
+│  Core:  json.zig · stream.zig · context.zig · react.zig          │
+│  Infra: config.zig · types.zig · arena.zig · cron.zig            │
+│  Edge:  ble.zig · serial.zig · transport.zig · fault_log.zig     │
+│  Lite:  sensor.zig · swarm.zig · power.zig · trigger.zig ·       │
+│         event_queue.zig                                          │
 └──────────────────────────────────────────────────────────────────┘
-
-  19 source files  ·  4,576 lines  ·  0 dependencies  ·  60+ tests
 ```
 
-### Source Map
+### What is actually interesting in here
 
-| File | LOC | Purpose |
-|------|----:|---------|
-| `main.zig` | 314 | Entry point: CLI arg parsing, REPL, cron daemon, embedded mode |
-| `agent.zig` | 317 | Agent loop: LLM calls, tool dispatch, streaming, error recovery |
-| `react.zig` | 105 | ReAct orchestration: classify → extract thought → execute tools |
-| `api.zig` | 171 | Multi-provider HTTP client with streaming support |
-| `stream.zig` | 380 | SSE parser with zero-allocation event type enum dispatch |
-| `json.zig` | 540 | Hand-rolled JSON builder + extractor with string-aware key search |
-| `context.zig` | 230 | Token estimation + O(n) priority-based context truncation |
-| `tools.zig` | 206 | Tool dispatcher: shared → profile → bridge fallback chain |
-| `tools_shared.zig` | 362 | Cross-profile tools: time, KV store, web search, sessions, OTA |
-| `tools_coding.zig` | 484 | Coding: bash, read/write/edit, search, list, patch, glob |
-| `tools_iot.zig` | 176 | IoT: MQTT, HTTP, GPIO bridge, device info |
-| `tools_robotics.zig` | 153 | Robotics: motion commands, e-stop, telemetry |
-| `config.zig` | 203 | Config loading: file → env → CLI precedence chain |
-| `types.zig` | 159 | Core types: Provider, Message, Config, ToolDef, ContentBlock |
-| `transport.zig` | 179 | Abstract vtable transport + BLE/Serial RPC protocol |
-| `ble.zig` | 159 | BLE GATT transport (Nordic SoftDevice integration points) |
-| `serial.zig` | 142 | UART transport with length-prefixed framing |
-| `arena.zig` | 210 | Fixed arena allocator with last-alloc resize optimization |
-| `cron.zig` | 206 | Interval scheduler for daemon mode (no threads, ~2 KB cost) |
+Four things in this codebase are worth a look regardless of the project's maturity:
+
+**Compile-time tool profiles.** `tools.zig` selects its profile module with a `comptime`
+switch on a build option:
+
+```zig
+const profile_mod = switch (build_options.profile) {
+    .coding => @import("tools_coding.zig"),
+    .iot => @import("tools_iot.zig"),
+    .robotics => @import("tools_robotics.zig"),
+};
+```
+
+Unselected profiles are never imported, so their code is not in the binary at all. The IoT
+build contains no `bash` tool — not disabled at runtime, *absent*. That makes "the IoT
+profile cannot shell out" a property of the build rather than a policy check, which is a
+genuinely nice use of Zig's comptime.
+
+**Integer-only signal processing for FPU-less MCUs.** `sensor.zig` implements a ring buffer,
+rolling average and Z-score anomaly detection entirely in integer math, so it runs on
+Cortex-M0 parts with no floating-point unit. 14 inline tests.
+
+**A fixed arena allocator with no free.** `arena.zig` provides `FixedArena(comptime size)`
+over a statically sized buffer — no `mmap`, no `sbrk` — reset in one operation between agent
+turns. Preset sizes range from 4 KB to 256 KB. It tracks peak usage and has integer-overflow
+guards. 7 inline tests.
+
+**Zero-allocation SSE event dispatch.** `stream.zig` parses the event stream into a typed
+enum by comparing against string literals ordered by expected frequency, so the common
+`content_block_delta` case matches first and no allocation happens for event typing.
+
+### Source map
+
+All 27 files in `src/`, with line counts and inline test counts measured from this checkout:
+
+| File | LOC | Tests | Purpose |
+|------|----:|------:|---------|
+| `json.zig` | 545 | 12 | Hand-rolled JSON builder + string-aware key extractor |
+| `tools_coding.zig` | 505 | 4 | Coding tools: bash, read/write/edit, search, list, patch, glob |
+| `tools_shared.zig` | 431 | 5 | Cross-profile tools: time, KV store, web search, sessions, OTA |
+| `sensor.zig` | 429 | 14 | Ring buffer + integer-only Z-score anomaly detection |
+| `stream.zig` | 378 | 5 | SSE parser with zero-allocation event type dispatch |
+| `swarm.zig` | 368 | 11 | Multi-agent coordination primitives for edge devices |
+| `agent.zig` | 316 | 3 | Agent loop: LLM calls, tool dispatch, streaming, error recovery |
+| `main.zig` | 314 | 0 | Entry point: CLI parsing, REPL, cron daemon, embedded mode |
+| `cron.zig` | 295 | 10 | Interval scheduler for daemon mode (no threads) |
+| `event_queue.zig` | 280 | 8 | Offline event buffer, drains to gateway on reconnect |
+| `tools_iot.zig` | 269 | 3 | IoT tools: MQTT, HTTP, GPIO bridge, device info |
+| `context.zig` | 234 | 6 | Token estimation + priority-based context truncation |
+| `trigger.zig` | 219 | 9 | Local threshold rule engine, evaluated without the LLM |
+| `power.zig` | 218 | 8 | Per-subsystem energy budget estimator |
+| `arena.zig` | 210 | 7 | Fixed arena allocator with last-alloc resize optimisation |
+| `tools.zig` | 205 | 11 | Tool dispatcher: shared → profile → bridge fallback chain |
+| `config.zig` | 202 | 0 | Config loading: file → env → CLI precedence |
+| `api_parse.zig` | 190 | 1 | Response parsing shared by the HTTP and BLE clients |
+| `transport.zig` | 179 | 4 | Abstract vtable transport + BLE/Serial RPC protocol |
+| `api.zig` | 170 | 0 | HTTP LLM client with streaming |
+| `tools_robotics.zig` | 159 | 0 | Robotics tools: motion commands, e-stop, telemetry |
+| `types.zig` | 158 | 0 | Core types: Provider, Message, Config, ToolDef, ContentBlock |
+| `ble.zig` | 155 | 0 | BLE GATT transport (SoftDevice integration points) |
+| `fault_log.zig` | 151 | 5 | Boot breadcrumbs so the LLM can diagnose after a reset |
+| `serial.zig` | 142 | 0 | UART transport with length-prefixed framing |
+| `react.zig` | 104 | 0 | ReAct orchestration: classify → extract thought → execute |
+| `api_ble.zig` | 91 | 0 | LLM client over BLE RPC, replaces `api.zig` when embedded |
+| **Total** | **6,917** | **126** | |
 
 ## Profiles
 
-Compile-time profiles select different tool sets via Zig's `comptime` evaluation. Only the selected profile's code is included in the final binary — everything else is dead-code eliminated. This means the IoT binary has **zero coding tools** and the coding binary has **zero MQTT code**.
+Compile-time profiles select tool sets via `comptime`. Only the selected profile's code
+reaches the binary.
 
 ```bash
-# Coding agent (default) — bash, file I/O, search, patch
-zig build -Dprofile=coding -Doptimize=ReleaseSmall
-
-# IoT agent — MQTT, HTTP, GPIO bridge, device info
-zig build -Dprofile=iot -Doptimize=ReleaseSmall
-
-# Robotics agent — motion commands, e-stop, telemetry
-zig build -Dprofile=robotics -Doptimize=ReleaseSmall
+zig build -Dprofile=coding -Doptimize=ReleaseSmall     # bash, file I/O, search, patch
+zig build -Dprofile=iot -Doptimize=ReleaseSmall        # MQTT, HTTP, GPIO bridge
+zig build -Dprofile=robotics -Doptimize=ReleaseSmall   # motion, e-stop, telemetry
 ```
-
-| Profile | Included Tools | Binary Size | Security Model |
-|---------|---------------|:-----------:|----------------|
-| **coding** | `bash`, `read_file`, `write_file`, `edit_file`, `search`, `list_files`, `patch` + shared | ~459 KB | Writes restricted to cwd + `/tmp/nanoagent-*`; sandbox mode available |
-| **iot** | `mqtt_publish`, `mqtt_subscribe`, `http_request`, `gpio_*`, `device_info` + shared | ~463 KB | No bash, no file writes, 30 req/min rate limit |
-| **robotics** | `robot_cmd`, `estop`, `telemetry` + shared | ~473 KB | No bash, bounds checking, 10 cmd/s, hardware e-stop |
-
-**Shared tools** (available in every profile):
-- `get_current_time` — ISO-8601 UTC timestamp
-- `kv_get` / `kv_set` / `kv_list` / `kv_delete` — persistent file-backed key-value store
-- `web_search` — DuckDuckGo search (no API key needed)
-- `session_save` / `session_load` / `session_list` — conversation persistence
-- `ota_check` / `ota_download` / `ota_apply` — over-the-air binary updates from GitHub
-
-All profiles support **sandbox mode**: `zig build -Dsandbox=true` — restricts all file operations to `/tmp/nanoagent-sandbox` and empties `PATH`.
 
 ## Providers
 
-NanoAgent supports **20+ LLM providers** through three protocol backends. Any provider with an OpenAI-compatible chat completions API works out of the box via `--base-url`.
+`types.zig` defines **three** native provider backends:
 
-| Backend | Provider | Default Model | Auth |
-|---------|----------|---------------|------|
-| **Claude** | Anthropic | `claude-sonnet-4-5-20250929` | `ANTHROPIC_API_KEY` |
-| **OpenAI** | OpenAI | `gpt-4o` | `OPENAI_API_KEY` |
-| **Ollama** | Local | `llama3` | None |
-| **OpenAI-compat** | Groq, DeepSeek, Together, Fireworks, Mistral, Google Gemini, Perplexity, Cerebras, Lambda, Anyscale, OpenRouter, vLLM, LiteLLM, Azure OpenAI, AWS Bedrock, Cloudflare Workers AI, etc. | Varies | `--base-url` + provider key |
+| Provider | Endpoint |
+|---|---|
+| `claude` | `https://api.anthropic.com` `/v1/messages` |
+| `openai` | `https://api.openai.com` `/v1/chat/completions` |
+| `ollama` | local `/api/chat` |
+
+Any other OpenAI-compatible service works through the `openai` backend by overriding
+`--base-url` — Groq, DeepSeek, Together, OpenRouter and Gemini's compatibility layer are
+documented in [`Docs/PROVIDERS.md`](Docs/PROVIDERS.md). That is a pass-through, not
+per-provider support: there are three code paths, not twenty.
 
 ```bash
-# Claude (default)
-./zig-out/bin/nanoagent "fix the tests"
-
-# OpenAI
-export OPENAI_API_KEY=sk-...
-./zig-out/bin/nanoagent --provider openai -m gpt-4o "fix the tests"
-
-# Local Ollama (no API key, no internet)
-./zig-out/bin/nanoagent --provider ollama -m llama3 "explain this code"
-
-# Groq (ultra-fast inference)
-OPENAI_API_KEY=gsk_... ./zig-out/bin/nanoagent \
-  --provider openai --base-url https://api.groq.com/openai \
-  -m llama-3.3-70b-versatile "optimize this function"
-
-# DeepSeek
-OPENAI_API_KEY=sk-... ./zig-out/bin/nanoagent \
-  --provider openai --base-url https://api.deepseek.com \
-  -m deepseek-chat "refactor this module"
-
-# Google Gemini (via OpenAI compatibility layer)
-OPENAI_API_KEY=... ./zig-out/bin/nanoagent \
-  --provider openai \
-  --base-url https://generativelanguage.googleapis.com/v1beta/openai \
-  -m gemini-2.0-flash "summarize this repo"
+nanoagent --provider claude --model claude-sonnet-4-5-20250929 "hello"
+nanoagent --provider ollama --model llama3.2 "hello"
+nanoagent --provider openai --base-url https://api.groq.com/openai \
+          --model llama-3.3-70b-versatile "hello"
 ```
 
-## Embedded Mode
+## Embedded Status
 
-NanoAgent's primary design target is **microcontrollers and edge devices**. The device runs the agent brain (ReAct loop, JSON parsing, state management). A phone or laptop bridges network requests and tool execution.
+The intended design splits work between a device and a bridge: the device runs the agent
+loop and JSON parsing; a phone or PC bridges network access and tool execution.
 
 ```
 ┌──────────────┐       BLE / UART       ┌───────────────┐      HTTPS      ┌─────────┐
 │  NanoAgent   │ ◄─────────────────────► │    Bridge      │ ◄────────────► │  LLM    │
 │  (device)    │                         │  (phone/PC)    │                │  API    │
-│              │  {"type":"tool",...}     │                │                └─────────┘
-│  Agent loop  │ ──────────────────────► │ Execute tools  │
-│  JSON parse  │                         │ Forward to API │
-│  State mgmt  │ ◄────────────────────  │ Return result  │
-│   ~50 KB     │  {"type":"result",...}  │  bridge.py     │
+│  Agent loop  │ ──────────────────────► │ Execute tools  │                └─────────┘
+│  JSON parse  │ ◄────────────────────   │ Forward to API │
 └──────────────┘                         └────────────────┘
 ```
 
-### Build for Hardware
+**This path is not yet working on hardware.** Be clear about what the build results mean:
 
-```bash
-# BLE transport (Nordic nRF52840, nRF5340)
-zig build -Dble=true -Doptimize=ReleaseSmall
+| Target class | Status |
+|---|---|
+| Linux (6 architectures) | Runs `--version` / `--help` under QEMU user-mode |
+| macOS arm64 | Runs natively, test suite passes |
+| Cortex-M0/M3/M4/M7/M23/M33/M55 | **Compiles and links only.** Output is a 432–436 byte stub with no board HAL. Running it needs HAL integration plus Renode or QEMU system-mode. |
+| RISC-V freestanding (ESP32-C3/C6/H2 class) | **Compiles only**, 496 byte stub |
+| Original ESP32 (Xtensa) | **Not supported** — Zig 0.15 has no Xtensa backend |
+| wasm32 | **Not supported** — `std.http` / `std.fs` need rearchitecting |
 
-# Serial/UART transport (ESP32, Raspberry Pi Pico, any UART device)
-zig build -Dserial=true -Doptimize=ReleaseSmall
-
-# Full embedded mode (bare-metal, no OS)
-zig build -Dembedded=true -Dtarget=thumb-none-eabi -Doptimize=ReleaseSmall
-```
-
-### Target Hardware
-
-| Device | SoC | RAM | Flash | Cost | Transport |
-|--------|-----|-----|-------|-----:|-----------|
-| **ESP32-C3** | RISC-V | 400 KB | 4 MB | $3 | Serial |
-| **Raspberry Pi Pico W** | RP2040 | 264 KB | 2 MB | $6 | Serial |
-| **Colmi R02** (smart ring) | BlueX RF03 | ~32 KB | ~256 KB | $20 | BLE |
-| **nRF52840-DK** | nRF52840 | 256 KB | 1 MB | $40 | BLE |
-| **nRF5340-DK** | nRF5340 | 512 KB | 1 MB | $50 | BLE |
+Previous versions of this README published a "Target Hardware" table listing ESP32-C3,
+Raspberry Pi Pico W, Colmi R02, nRF52840-DK and nRF5340-DK with RAM, flash, cost and
+transport columns, implying validated deployments. No board in that table has ever run this
+code. The table is removed; the compile-target mapping in
+[`Docs/CROSS-CHECK-RESULTS.md`](Docs/CROSS-CHECK-RESULTS.md) is the accurate version, and it
+labels every bare-metal entry compile-only.
 
 ### Fixed Arena Allocator
 
-For devices with no OS heap, NanoAgent provides a fixed-size arena allocator with a **last-allocation resize optimization** — when the most recent allocation is grown (common with `ArrayList`), it extends in-place without copying:
-
-```zig
-var mem = arena.Arena32K.init();  // 32 KB — fits on nRF5340
-const alloc = mem.allocator();
-// ... use alloc for all agent operations ...
-mem.reset();  // Free everything at once between agent turns
-```
-
-Preset sizes: `Arena4K` (Colmi R02), `Arena16K` (nRF52840), `Arena32K` (nRF5340), `Arena128K` (Balletto B1), `Arena256K` (desktop-embedded hybrid).
+`arena.zig` sizes: `Arena4K`, `Arena16K`, `Arena32K`, `Arena128K`, `Arena256K`. These are
+allocator presets chosen with particular device classes in mind; they are not measured
+footprints on those devices.
 
 ## Transport Layers
 
-| Transport | Use Case | Protocol | Status |
-|-----------|----------|----------|--------|
-| **HTTP** | Desktop / cloud — direct HTTPS to LLM API | Standard HTTP/1.1 | Stable |
-| **BLE** | Embedded — GATT service with MTU framing | Custom GATT (0xPC01–0xPC03) | Experimental |
-| **Serial** | Dev boards — UART to host machine | Length-prefixed JSON lines | Experimental |
+`transport.zig` defines a vtable interface with three implementations: HTTP (`api.zig`),
+BLE GATT (`ble.zig`, with Nordic SoftDevice integration points), and UART
+(`serial.zig`, length-prefixed framing, baud set via `stty` on Linux/macOS).
 
-All transports implement the same vtable interface. The agent logic is **transport-agnostic** — swap the physical layer without touching a single line of agent code.
-
-> **BLE note:** Desktop simulation uses Unix sockets (`/tmp/nanoagent.sock`). Real hardware requires linking against the platform BLE SDK (e.g., Nordic SoftDevice). See `ble.zig` for integration points.
+```bash
+zig build -Dble=true -Doptimize=ReleaseSmall
+zig build -Dserial=true -Doptimize=ReleaseSmall
+zig build -Dembedded=true -Doptimize=ReleaseSmall   # swaps api.zig → api_ble.zig
+```
 
 ## Cron / Heartbeat (Daemon Mode)
 
-Run NanoAgent as a scheduled agent on edge devices:
+`cron.zig` is an interval scheduler that uses no threads. Intervals are in **seconds**.
 
 ```bash
-# Run agent every 5 minutes with a custom prompt
-nanoagent --cron-interval 300 --cron-prompt "check sensors and report anomalies"
+# Run the agent every 5 minutes with a fixed prompt
+nanoagent --cron-interval 300 --cron-prompt "check sensor readings"
 
-# Heartbeat logging every 60 seconds + agent every 10 minutes
-nanoagent --heartbeat 60 --cron-interval 600
+# Heartbeat every 60s alongside a 10-minute agent interval
+nanoagent --cron-interval 600 --cron-prompt "..." --heartbeat 60
 
-# Run exactly 10 times then exit
-nanoagent --cron-interval 120 --cron-max-runs 10 --cron-prompt "collect data"
+# Run exactly 10 times, then exit
+nanoagent --cron-interval 60 --cron-prompt "..." --cron-max-runs 10
 ```
-
-The scheduler adds ~2 KB to binary size, uses no threads, and is designed for edge devices running periodic data collection between connectivity windows.
 
 ## Messaging Channels
 
-7 messaging channels let your agent communicate wherever your users are:
-
-| Channel | Library | Auth | Use Case |
-|---------|---------|------|----------|
-| **Telegram** | stdlib `urllib` | Bot token | Chat-based interaction |
-| **Discord** | `discord.py` | Bot token | Team / community agents |
-| **Slack** | `slack-bolt` | Bot + App token (Socket Mode) | Workspace automation |
-| **WhatsApp** | Cloud API (Meta) | Business access token | Customer-facing agents |
-| **MQTT** | `paho-mqtt` | Broker config | IoT device messaging |
-| **WebSocket** | `websockets` | Token auth | Browser clients, streaming |
-| **Webhook** | stdlib `http.server` | Bearer token | Simplest HTTP integration |
-
-```bash
-# Start multi-channel server
-python bridge/bridge/bridge.py --serve --channels telegram,discord,webhook
-
-# WebSocket gateway for browser clients
-python bridge/bridge/bridge.py --serve --channels websocket
-```
-
-### Channel Configuration
-
-Per-channel settings via `~/.nanoagent/channels.json`:
-
-```json
-{
-  "webhook": {"port": 8080, "auth_token": "secret"},
-  "websocket": {"port": 8765, "agent_binary": "./zig-out/bin/nanoagent"},
-  "telegram": {"token": "bot123:ABC", "allowed_users": [12345]},
-  "mqtt": {"broker": "localhost", "subscribe_topic": "nanoagent/in"}
-}
-```
-
-### WebSocket Wire Protocol
-
-```json
-→ {"type": "message", "text": "fix the bug"}
-← {"type": "text", "text": "Let me look at that..."}
-← {"type": "done"}
-```
+Seven channel adapters live in the Python bridge (`bridge/bridge/channels/`): Discord,
+MQTT, Slack, Telegram, WhatsApp, webhook and WebSocket. These are bridge-side Python, not
+Zig — the Zig binary reaches them through the bridge RPC protocol.
 
 ## MCP Support
 
-NanoAgent integrates with [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) servers, connecting your agent to **1000+ external tools** from the MCP ecosystem.
-
-```json
-// ~/.nanoagent/mcp_servers.json
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
-    },
-    "remote": {
-      "transport": "http",
-      "url": "https://my-server.com/mcp"
-    }
-  }
-}
-```
-
-```bash
-# Start with MCP tools available
-python bridge/bridge/bridge.py --serve --channels webhook
-```
-
-MCP tools are auto-discovered and namespaced as `servername__toolname`. Supports both **stdio** and **streamable HTTP** transports.
+`bridge/bridge/mcp_bridge.py` exposes MCP tools to the agent through the same bridge
+channel.
 
 ## GPIO / Hardware Control
 
-Direct hardware control from AI — GPIO, I2C, SPI — with safety guardrails:
-
-| Tool | Description | Safety |
-|------|-------------|--------|
-| `gpio_read` | Read a GPIO pin value | Pin allowlist |
-| `gpio_write` | Write a value to a GPIO pin | Pin allowlist + rate limiting |
-| `gpio_list` | List available GPIO pins | — |
-| `i2c_read` | Read from an I2C device | Address allowlist |
-| `spi_transfer` | Transfer data over SPI | Device allowlist |
-
-```bash
-# Build with IoT profile
-zig build -Dprofile=iot -Doptimize=ReleaseSmall
-
-# GPIO tools route through the Python bridge
-# Linux: real hardware via libgpiod
-# macOS/Windows: simulator mode (logs commands)
-```
-
-Safety configuration via `~/.nanoagent/hardware.json`:
-```json
-{
-  "allowed_pins": [17, 18, 27, 22],
-  "gpio_chip": "gpiochip0"
-}
-```
+GPIO tools route through the Python bridge: real hardware via `libgpiod` on Linux,
+simulator mode (logging only) on macOS and Windows.
 
 ## Skills / Plugins
 
-Extend NanoAgent with custom Python tools. Drop a `.py` file in `~/.nanoagent/plugins/`:
-
-```python
-# ~/.nanoagent/plugins/my_tool.py
-TOOL_NAME = "my_custom_tool"
-TOOL_DESCRIPTION = "Does something custom."
-TOOL_SCHEMA = {"type": "object", "properties": {"input": {"type": "string"}}}
-
-def handle(data: dict) -> dict:
-    return {"result": f"processed: {data.get('input', '')}"}
-```
-
-Plugins are discovered on bridge startup. Unknown tools from the Zig agent automatically fall through to the bridge, which routes them to the matching plugin handler. Built-in tool names cannot be overridden (security invariant).
+`bridge/bridge/plugins.py` loads Python plugins from `~/.nanoagent/plugins/` with lifecycle
+hooks and capability declaration.
 
 ## Configuration Reference
 
-### Precedence
+Precedence: **CLI flags → environment variables → config file → defaults**
+(`config.zig`).
 
-**CLI flags → Environment variables → Config file → Defaults**
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ANTHROPIC_API_KEY` | Claude API key | — |
-| `OPENAI_API_KEY` | OpenAI API key (auto-selects `openai` provider) | — |
-| `NANOAGENT_MODEL` | Model name override | `claude-sonnet-4-5-20250929` |
-| `NANOAGENT_PROVIDER` | Provider override (`claude`, `openai`, `ollama`) | `claude` |
-| `NANOAGENT_BASE_URL` | Custom API base URL | Provider default |
-| `NANOAGENT_SYSTEM_PROMPT` | System prompt override | Built-in |
-| `NANOAGENT_MAX_TOKENS` | Max response tokens | `8192` |
-| `NANOAGENT_TRANSPORT` | Transport layer (`http`, `ble`, `serial`) | `http` |
-| `NANOAGENT_SERIAL_PORT` | Serial port path | — |
-| `NANOAGENT_BLE_DEVICE` | BLE device address | — |
-
-### Config File
-
-Project-level configuration via `.nanoagent.json`:
-
-```json
-{
-  "model": "claude-sonnet-4-5-20250929",
-  "provider": "claude",
-  "max_tokens": 8192,
-  "max_turns": 50,
-  "streaming": true,
-  "system_prompt": "You are a Go expert...",
-  "base_url": "https://my-proxy.com"
-}
-```
-
-### CLI Flags
+### CLI flags
 
 ```
-nanoagent [OPTIONS] [PROMPT]
-
-Options:
-  -m, --model MODEL        Model name
-  -p, --prompt TEXT         Run a single prompt and exit
-  --provider PROVIDER       claude | openai | ollama
-  --base-url URL            Custom API base URL
-  --no-stream               Disable streaming
-  --transport TYPE          http | ble | serial
-  --serial-port PATH        Serial port (e.g. /dev/ttyUSB0)
-  --ble-device ADDR         BLE device address
-  --cron-interval SECS      Run agent every N seconds (daemon mode)
-  --cron-prompt TEXT         Prompt for cron runs
-  --cron-max-runs N          Stop after N cron runs (0 = unlimited)
-  --heartbeat SECS          Log heartbeat every N seconds
-  -v, --version             Show version
-  -h, --help                Show help
+--provider <claude|openai|ollama>   --model <name>
+--base-url <url>                    --transport <http|ble|serial>
+--ble-device <id>                   --serial-port <path>
+--cron-interval <seconds>           --cron-prompt <text>
+--cron-max-runs <n>                 --heartbeat <seconds>
+--prompt <text>                     --no-stream
+--version                           --help
 ```
 
-### REPL Commands
+### Environment variables
 
-| Command | Description |
-|---------|-------------|
-| `/help` | Show available commands |
-| `/quit` `/exit` `/q` | Exit the REPL |
-| `/model <name>` | Switch LLM model |
-| `/provider <name>` | Switch LLM provider |
+```
+ANTHROPIC_API_KEY          OPENAI_API_KEY
+NANOAGENT_PROVIDER         NANOAGENT_MODEL
+NANOAGENT_BASE_URL         NANOAGENT_TRANSPORT
+NANOAGENT_BLE_DEVICE       NANOAGENT_SERIAL_PORT
+NANOAGENT_MAX_TOKENS       NANOAGENT_SYSTEM_PROMPT
+```
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| **Hand-rolled JSON** | `std.json` pulls in unnecessary code. NanoAgent only needs key extraction + request body building. ~540 lines with string-aware key search, zero deps. |
-| **Zero-alloc SSE event types** | SSE event types (`message_start`, `content_block_delta`, etc.) are parsed into an enum instead of heap-allocated strings — eliminates 2 allocations per event. |
-| **O(n) context truncation** | Token totals are computed once and decremented incrementally as messages are removed, avoiding the O(n²) cost of recalculating on every removal. |
-| **Last-alloc arena resize** | The fixed arena allocator tracks the most recent allocation offset, allowing `ArrayList` growth to extend in-place without copying — the most common allocation pattern. |
-| **LTO for release builds** | Link-time optimization enables cross-module inlining and dead code elimination, reducing binary size beyond what Zig's comptime can achieve alone. |
-| **Vtable transports** | Same binary works over HTTP, BLE, or Serial. Swap physical layer without touching agent logic. |
-| **FNV-1a loop detection** | Detect stuck LLM loops using a ring buffer of hashes in constant memory (128 bytes). Critical for unattended embedded operation. |
-| **Priority-based truncation** | When context fills, drop assistant text first, then user text, keep tool results last. Preserves working memory at the expense of chat history. |
-| **Substring search, not regex** | Regex engines are 10K+ lines. `std.mem.indexOf` covers 90%+ of agent search use cases in a fraction of the code. |
-| **Comptime profile selection** | `@import` at compile time means unused profiles contribute exactly 0 bytes to the binary. No feature flags at runtime. |
+- **No `std.json`.** `json.zig` is a hand-rolled builder and extractor, so the parser works
+  on freestanding targets where the standard library's allocator assumptions do not hold.
+- **Profiles at comptime, not runtime.** Absent code cannot be exploited.
+- **Arena over general-purpose allocation.** Reset per turn, no fragmentation, bounded
+  memory.
+- **vtable transports.** One agent loop, swappable link layer.
 
 ## Testing
 
 ```bash
-zig build test                    # 60+ inline unit tests
-bash test/integration.sh          # Integration tests
+zig build test                    # 126 inline unit tests
+bash test/integration.sh          # integration tests
+bash test/smoke-test.sh           # smoke tests
 ```
 
-Test coverage includes:
-- **JSON** — key extraction, string escaping/unescaping, nested objects, arrays, builder output
-- **SSE streaming** — text-only, tool use, token counts, callback firing, chunked feed (byte-at-a-time)
-- **Arena** — basic alloc, overflow, alignment, peak tracking, multiple allocations, integer overflow safety, preset sizes
-- **Context** — token estimation, message token estimation, near-limit detection, usage string formatting
-- **Tools** — bash exec, file read/write/edit, glob matching, command injection prevention
-- **Security** — shell injection via search, injection via list_files, path traversal guards
+Coverage is concentrated in `sensor.zig` (14), `json.zig` (12), `tools.zig` and `swarm.zig`
+(11 each), and `cron.zig` (10). `main.zig`, `config.zig`, `api.zig`, `types.zig`, `ble.zig`,
+`serial.zig`, `react.zig`, `tools_robotics.zig` and `api_ble.zig` have **no inline tests**.
 
-CI runs on every push with a **binary size gate** (< 600 KB).
+The macOS run recorded in `Docs/CROSS-CHECK-RESULTS.md` reports "39+ tests PASS", predating
+later test additions.
+
+There is no CI. If you change something, run the tests yourself.
 
 ## Building
 
 ```bash
-zig build                              # Debug build
-zig build -Doptimize=ReleaseSmall      # Smallest binary (LTO enabled)
-zig build -Doptimize=ReleaseFast       # Fastest binary (LTO enabled)
+zig build                              # Debug
+zig build -Doptimize=ReleaseSmall      # Smallest binary
+zig build -Doptimize=ReleaseFast       # Fastest binary
 zig build test                         # Run all tests
-zig build size                         # Report binary size
+zig build size                         # ls -la on the built artifact
 
-# Build flags
-zig build -Dprofile=iot                # Select tool profile
-zig build -Dble=true                   # Enable BLE transport
-zig build -Dserial=true                # Enable serial transport
-zig build -Dembedded=true              # Bare-metal embedded mode
+zig build -Dprofile=iot                # Tool profile
+zig build -Dble=true                   # BLE transport
+zig build -Dserial=true                # Serial transport
+zig build -Dembedded=true              # Bare-metal
 zig build -Dsandbox=true               # Sandbox mode
 ```
 
 ## Security
 
-NanoAgent executes tools with the permissions of the running user. **Do not run with elevated privileges.**
+NanoAgent executes tools with the permissions of the running user. **Do not run it with
+elevated privileges.**
 
-### Mitigations
-
-- **Profile isolation** — IoT and robotics profiles have no `bash` tool at all
+- **Profile isolation** — IoT and robotics builds contain no `bash` tool
 - **Sandbox mode** — restricts filesystem to `/tmp/nanoagent-sandbox`, empties `PATH`
-- **Path allowlisting** — file tools restricted to cwd + `/tmp/nanoagent-*` (coding profile)
-- **GPIO pin allowlist** — hardware tools only operate on pre-approved pins
-- **Rate limiting** — GPIO writes (10/sec), HTTP requests (30/min in IoT)
-- **Shell quoting** — all subprocess arguments are properly escaped
-- **Loop detection** — prevents runaway tool execution on stuck LLM outputs
+- **Path allowlisting** — file tools restricted to cwd + `/tmp/nanoagent-*`
+- **GPIO pin allowlist** — hardware tools only touch pre-approved pins
+- **Rate limiting** — GPIO writes capped at 10/sec per pin (`bridge/hardware.py`), IoT
+  bridge calls at 30/min (`tools_iot.zig`)
+- **Shell quoting** — subprocess arguments are escaped
+- **Loop detection** — caps runaway tool execution
 
-BLE and Serial transports do **not** currently include encryption or authentication. Use only on trusted networks.
+BLE and Serial transports have **no encryption or authentication**. There is no CI running
+these checks, and this code has not had a security review. Treat it as experimental.
 
 See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 
 ## Known Limitations
 
-- **JSON key search is string-aware but flat** — finds the first matching key outside of string values, but does not track object nesting depth. Works correctly for LLM API responses where keys are unambiguous across nesting levels.
-- **Token estimation is heuristic** — uses ~4 chars/token approximation. Accurate enough for context management but not billing-precise.
-- **Session persistence is bridge-mediated** — save/load via bridge tools, not native to the Zig binary.
-- **BLE transport is protocol-only** — implements framing and simulation; real hardware requires platform BLE SDK linking (e.g., Nordic SoftDevice).
+- **No CI.** No automated build, test or size checking of any kind.
+- **No hardware validation.** MCU targets compile to stubs; none has been flashed.
+- **No performance measurements.** Boot time, idle RAM and throughput are unmeasured.
+- **JSON key search is flat.** Finds the first matching key outside string values, without
+  tracking nesting depth. Fine for LLM API responses with unambiguous keys.
+- **Token estimation is heuristic** — roughly 4 chars/token, not billing-precise.
+- **Session persistence is bridge-mediated**, not native to the Zig binary.
+- **BLE transport is protocol-only** — framing and simulation; real hardware needs a
+  platform BLE SDK.
 - **Serial baud configuration uses `stty`** — Linux/macOS only.
-- **Requires Zig 0.15+** — uses recent allocator vtable API.
+- **Requires Zig 0.15+** — uses the recent allocator vtable API.
+- **Nine source files have no inline tests** (listed under Testing).
+- **Naming is inconsistent.** The project was renamed from KrillClaw; `build.zig.zon` still
+  declares `.name = .krillclaw`, and `Docs/`, `CONTRIBUTING.md`, the test scripts and the
+  issue templates still say KrillClaw throughout. The built executable is `nanoagent`.
 
-## My Contributions
+## Upstream and Licensing
 
-- **ReAct Agent Loop** — Designed and implemented the core Reason-Act-Observe agent loop in Zig with streaming JSON parsing, tool dispatch, and configurable iteration limits.
-- **Multi-Transport Layer** — Built the pluggable transport architecture supporting HTTP, BLE (with MTU-aware framing), and Serial (UART) communication for edge deployment.
-- **LLM Provider Abstraction** — Created the provider-agnostic LLM interface supporting OpenAI, Anthropic, Ollama, and LM Studio with automatic model detection and token estimation.
-- **Plugin System** — Developed the dynamic plugin loading system with lifecycle hooks, capability declaration, and bridge-mediated tool registration.
-- **Memory & Context Management** — Implemented the sliding-window context manager with token-budgeted message history and system prompt injection.
+This repository is a rename of **KrillClaw**. That upstream identity is still visible in
+`build.zig.zon`, the docs and the test scripts, and it is the name the LICENSE grants rights
+to.
 
----
+- **Licensed Work:** KrillClaw, © 2026 **Accelerando AI**
+- **Licensor:** Accelerando AI — commercial licensing: `hello@krillclaw.com`
+- **License:** [Business Source License 1.1](LICENSE) — **source-available, not open source**
+- **Additional Use Grant:** any purpose, including production, if your organisation has under
+  $1,000,000 USD annual revenue **or** fewer than 10,000 deployed devices. Non-commercial,
+  internal evaluation, academic and personal use are always permitted.
+- **Change Date:** 17 February 2029 → converts to **Apache License 2.0**
 
-## License
+The Business Source License text is copyright © 2017 **MariaDB Corporation Ab**. "Business
+Source License" is a trademark of MariaDB Corporation Ab.
 
-[BSL 1.1](LICENSE) — Business Source License. Converts to **Apache 2.0** after 3 years (Change Date: 2029-02-17).
-
-NanoAgent is **source-available**, not open source. You can read, build, and modify the code freely. Commercial use above the license thresholds requires a commercial license. See [LICENSE](LICENSE) for full terms.
+Commercial use above those thresholds requires a separate license from Accelerando AI.
 
 ## Contributing
 
-Contributions welcome under BSL 1.1. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions welcome under BSL 1.1. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
 <p align="center">
-  <sub>Built with Zig. Zero frameworks were harmed in the making of this runtime.</sub>
+  <sub>Built with Zig.</sub>
 </p>
